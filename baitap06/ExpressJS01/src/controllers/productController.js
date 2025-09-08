@@ -35,7 +35,7 @@ const getCategories = async (req, res) => {
 };
 const searchProducts = async (req, res) => {
   try {
-    let { q, category, page = 1, limit = 10 } = req.query;
+    let { q, category, page = 1, limit = 10, priceMin, priceMax, onSale } = req.query;
 
     // Ép kiểu số
     page = parseInt(page, 10);
@@ -45,6 +45,7 @@ const searchProducts = async (req, res) => {
     let mustQueries = [];
     let filterQueries = [];
 
+    // 🔎 Search theo text
     if (q) {
       mustQueries.push({
         bool: {
@@ -52,7 +53,7 @@ const searchProducts = async (req, res) => {
             {
               multi_match: {
                 query: q,
-                fields: ["name^3", "category"], // name ưu tiên gấp 3 lần
+                fields: ["name^3", "category"],
                 fuzziness: "AUTO"
               }
             },
@@ -69,9 +70,28 @@ const searchProducts = async (req, res) => {
       });
     }
 
+    // 📂 Lọc theo category
     if (category && category !== "All") {
       filterQueries.push({
         term: { category: category }
+      });
+    }
+
+    // 💰 Lọc theo giá
+    if (priceMin || priceMax) {
+      let rangeQuery = {};
+      if (priceMin) rangeQuery.gte = Number(priceMin);
+      if (priceMax) rangeQuery.lte = Number(priceMax);
+
+      filterQueries.push({
+        range: { price: rangeQuery }
+      });
+    }
+
+    // 🎯 Lọc theo khuyến mãi
+    if (onSale !== undefined) {
+      filterQueries.push({
+        term: { onSale: onSale === "true" } // query param là string nên ép về boolean
       });
     }
 
@@ -107,7 +127,6 @@ const searchProducts = async (req, res) => {
     res.status(500).json({ message: "Lỗi server khi tìm kiếm sản phẩm" });
   }
 };
-
 
 
 
