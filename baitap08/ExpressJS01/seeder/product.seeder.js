@@ -2,7 +2,7 @@ require("dotenv").config();
 const mongoose = require('mongoose');
 const Product = require('../src/models/productModel.js'); // đúng đường dẫn model của bạn
 const connection = require('../src/config/database.js'); // đúng đường dẫn
-
+const elasticClient = require('../src/config/elastic.js'); // Đảm bảo đúng đường dẫn
 const seedProducts = async () => {
   await connection();
 
@@ -108,13 +108,49 @@ const seedProducts = async () => {
   },
 ];
   try {
-    await Product.deleteMany(); // Xóa hết dữ liệu cũ (nếu cần)
+    // Xóa dữ liệu cũ trong MongoDB
+    await Product.deleteMany();
+
+    // Xóa index cũ trong Elasticsearch
+    await elasticClient.indices.delete({ index: "products", ignore_unavailable: true });
+
+    // Tạo lại index với mapping chuẩn
+    await elasticClient.indices.create({
+      index: "products",
+      mappings: {
+        properties: {
+          name: { type: "text" },
+          description: { type: "text" },
+          category: { type: "keyword" }, // keyword để filter
+          price: { type: "float" },
+          imageUrl: { type: "keyword" },
+        },
+      },
+    });
+
+    // Thêm dữ liệu vào MongoDB
     const result = await Product.insertMany(sampleProducts);
-    console.log(`Đã thêm ${result.length} sản phẩm.`);
+    console.log(`✅ Đã thêm ${result.length} sản phẩm vào MongoDB.`);
+
+    // Đồng bộ dữ liệu sang Elasticsearch
+    const operations = result.flatMap((doc) => [
+      { index: { _index: "products", _id: doc._id.toString() } },
+      {
+        name: doc.name,
+        description: doc.description,
+        category: doc.category,
+        price: doc.price,
+        imageUrl: doc.imageUrl,
+      },
+    ]);
+
+    await elasticClient.bulk({ refresh: true, operations });
+    console.log(`✅ Đã đồng bộ ${result.length} sản phẩm vào Elasticsearch.`);
   } catch (error) {
-    console.error('Lỗi khi thêm dữ liệu:', error);
+    console.error("❌ Lỗi khi seed:", error);
   } finally {
-    mongoose.connection.close(); // Đóng kết nối
+    // Chỉ đóng sau khi xong
+    mongoose.connection.close();
   }
 };
 
